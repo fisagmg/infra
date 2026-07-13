@@ -328,6 +328,55 @@ On-Premise 환경 특성상 모든 요소를 IaC로 관리하기는 어렵지만
 
 ---
 
+## 14. 트러블 슈팅
+
+
+### ESXi 단일 호스트 리소스 집중으로 인한 성능 저하
+
+#### 문제 상황
+
+초기 인프라 구성에서는 GitLab, Jenkins, Harbor, MySQL, Kubernetes Control Plane, LAB VM 등 대부분의 VM이 단일 ESXi 호스트에 집중되어 있었다.
+
+이로 인해 여러 VM에서 동시에 빌드, 이미지 Push, DB Write, Kubernetes 작업이 발생할 경우 vCenter UI 지연, VM 응답 저하, CPU Ready Time 증가, Disk I/O Latency 증가 가능성이 확인되었다.
+
+![alt text](image.png)
+
+#### 원인
+
+단일 ESXi 호스트에 약 18대의 VM이 집중되어 있었고, CI/CD 계열 VM과 DB 계열 VM처럼 CPU와 Disk I/O를 많이 사용하는 VM들이 동시에 동작하면서 리소스 경합이 발생할 수 있는 구조였다.
+
+특히 GitLab, Harbor, MySQL Master와 같이 I/O가 집중되는 VM이 같은 Datastore와 동일 호스트 자원을 공유하면서 병목 가능성이 존재하였다.
+
+#### 확인 방법
+
+vCenter 고급 성능 차트를 통해 다음 항목을 확인하였다.
+
+* CPU 사용률
+* CPU Ready Time
+* Disk Latency
+* VM별 리소스 사용량
+* 특정 시간대의 응답 지연 여부
+
+#### 처리 내용
+
+* VM별 CPU / Memory 리소스 재산정
+* 불필요한 GUI 및 백그라운드 데몬 제거
+* VMware Tools 및 Balloon Driver 상태 확인
+* `swappiness=10` 적용
+* 오래된 Snapshot 및 불필요한 로그 정리
+* GitLab, Harbor, MySQL Master 등 주요 VM에 CPU / RAM Reservation 적용
+* I/O가 집중되는 VM을 SSD Datastore로 우선 배치
+* 외부 보조 서버와 WireGuard Site-to-Site VPN 연동 구조 검토
+
+#### 개선 방향
+
+메인 ESXi 호스트와 외부 보조 서버를 WireGuard 기반으로 연결하여 일부 VM을 분산 배치하였다.
+
+분산 대상 VM은 Jenkins, GitLab, Harbor등의 VM을 우선 고려하였다. 핵심 VM인  MySQL Master, Kubernetes Master는 메인 서버에 유지하고, CI/CD 및 보조 DB 계열 VM을 외부 서버로 이전하여 CPU 및 I/O 부하를 분산하는 방향으로 설계하였다.
+
+
+
+---
 
 🔗 **Project Notion Workspace**  
 👉 (https://www.notion.so/Infrastructure-297e338a90a2803c8ce5c18d5c153beb?source=copy_link)
